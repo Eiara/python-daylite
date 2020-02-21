@@ -1,6 +1,7 @@
 from schema import Schema, Use, And, Or, Optional, Hook
 import json
 import arrow
+from pathlib import PurePath
 
 # Doesn't need special functionality, just needs to be notable
 # as a separate type
@@ -15,9 +16,16 @@ class DayliteData:
         self.__schema__ = schema
         self.__client__ = client
     
-    def from_json(self, data):
-        data = self.__schema__.validate(json.loads(data))
-        vars(self).update(data)
+    @classmethod
+    def _server(cls, schema, data: dict, client=None):
+        # Data is already a dict, since the it's coming from the 
+        # server fetch stage instead of expecting to be parsed
+        # from json outrselves
+        
+        self = cls(schema, data, client)
+        server_data = Server_Data.validate(data)
+        vars(self).update(server_data)
+        return self
     
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
@@ -27,7 +35,7 @@ class DayliteData:
     def __getattr__(self, name):
         val = super().__getattr__(name)
         if type(val) == Reference:
-            val.set_client(self.__client__)
+            val._set_client(self.__client__)
         return val
         
     def has_key(self, name):
@@ -53,9 +61,20 @@ class Reference:
     _daylitedata    = None
     _client         = None
     _schema         = None
-    def __init__(self, schema, ref):
-        self._schema = schema
+    def __init__(self, ref):
+        # self._schema = schema
         self._ref = ref
+        reftype = str(PurePath(ref).parents[0])
+        self._schema = reference_map[reftype]
+        
+    @classmethod
+    def factory(cls, ref):
+        if type(ref) == cls:
+            return ref
+        return cls(ref)
+        
+    def __repr__(self):
+        return self._ref
         
     def _set_client(self, client):
         
@@ -86,7 +105,7 @@ class Reference:
         
     def validate(self):
         """Needs to support the schema validation contract"""
-        return True # it's all valid! for now!
+        return self._schema is not None
     
 
 Date = Schema({
@@ -131,35 +150,47 @@ Address = Schema({
 })
 
 Company_Roles = Schema({
-    "company": str, # TODO: This is a reference
-    "role": str,
+    "company": Use(Reference.factory),
+    Optional("role"): And(str, len),
+    Optional("title"): And(str, len),
+    Optional("department"): And(str, len),
+    Optional("default"): bool
+})
+
+Contact_Roles = Schema({
     "title": str,
     "department": str,
+    "role": str,
+    "contact": Use(Reference.factory)
 })
 
 Opportunity_Roles = Schema({
-    "opportunity": str, # TODO: This is a reference
+    "opportunity": Use(Reference.factory),
     "title": str,
     "role": str,
 })
 
 Project_Roles = Schema({
-    "project": str, # TODO: This is a reference
+    "project": Use(Reference.factory),
     "title": str,
     "role": str
 })
 
 Tasks_Internal = Schema({
-    "task": str # TODO: This is a reference
+    "task": Use(Reference.factory)
 })
 
 Appointments_Internal = Schema({
-    "appointment": str # TODO This is a reference
+    "appointment": Use(Reference.factory)
 })
 
 Groups_Internal = Schema({
-    "group": str # TODO this is a reference
+    "group": Use(Reference.factory)
 })
+
+
+# TODO: Make this proper reference-url-like handling
+Url = Schema(str)
 
 Thin_Contact = Schema({
     "self":                         And(str, len),
@@ -171,13 +202,12 @@ ignore_extra_keys=True)
 
 Contact = Schema(
     {
-    ReadOnly("self"):               And(str, len),
     Optional("prefix"):             str,
     Optional("first_name"):         And(str, len),
     Optional("middle_name"):        str,
     Optional("last_name"):          And(str, len),
     Optional("suffix"):             str,
-    ReadOnly("full_name"):                    str,
+    ReadOnly("full_name"):          str,
     Optional("alias"):              str,
     Optional("nickname"):           str,
     Optional("image"):              str,
@@ -196,14 +226,60 @@ Contact = Schema(
     Optional("opportunities"):      Schema([Opportunity_Roles]),
     Optional("details"):            str,
     
-    # These things are always here
-    
-    # TODO: Make these a reference types instead
-    ReadOnly("owner"):              And(str, len),
-    ReadOnly("creator"):            And(str, len),
-    # Yay dates
-    ReadOnly("create_date"):        Use(arrow.get),
-    ReadOnly("modify_date"):        Use(arrow.get)
+    # This is a reference to a User
+    Optional("owner"):              Use(Reference.factory),
 },
 name="Contact",
 ignore_extra_keys=True)
+
+Company = Schema({
+    # This is technically a reference however it's nonsense to have a 
+    # reference object to ourselves
+    Optional("name"):               And(str, len),
+    Optional("image"):              And(str, len), # TODO: How is this even?
+    Optional("category"):           And(str, len),
+    Optional("keywords"):           Schema([str]),
+    Optional("type"):               And(str, len),
+    Optional("industry"):           And(str, len),
+    Optional("region"):             And(str, len),
+    Optional("emails"):             Schema([Emails]),
+    Optional("urls"):               Schema([Urls]),
+    Optional("social_profiles"):    Schema([Social_Profiles]),
+    Optional("phone_numbers"):      Schema([Phone_Numbers]),
+    Optional("addresses"):          Schema([Address]),
+    Optional("contacts"):           Schema([Contact_Roles]),
+    Optional("opportunities"):      Schema([Opportunity_Roles]),
+    Optional("details"):            And(str, len),
+    
+    # This is a reference to a User
+    Optional("owner"):              Use(Reference.factory)
+},
+ignore_extra_keys=True)
+
+
+User = Schema({
+    ReadOnly("login"):              And(str, len),
+    ReadOnly("contact"):            Use(Reference.factory),
+    Optional("hex_colour"):         And(str, len)
+},
+ignore_extra_keys=True)
+
+
+# This is only used by the validator when the data is coming from
+# the server, instead of when it's coming from a developer creating a new
+# object from scratch, pre-save-to-server
+# This is broken out so that creating a new object doesn't
+# create sad times as you walk through creating and modifying it
+
+Server_Data = Schema({
+    ReadOnly("self"):               And(str, len, Url),
+    ReadOnly("create_date"):        Use(arrow.get),
+    ReadOnly("modify_date"):        Use(arrow.get),
+},
+ignore_extra_keys=True)
+
+reference_map = {
+    "/v1/contact":                  Contact,
+    "/v1/companies":                Company,
+    "/v1/users":                    User,
+}

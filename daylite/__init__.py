@@ -20,10 +20,10 @@ class Daylite:
         res = self.session.get(AUTH_URL)
         return res.status_code == 200
         
-    def fetch(self, schema, ref):
+    def fetch(self, schema, ref) -> DayliteData:
         res = self.session.get(urljoin(URL_ROOT, ref))
         res.raise_for_status()
-        return DayliteData(schema, res.json())
+        return DayliteData._server(schema, res.json(), self)
     
     def contacts(self) -> [DayliteData]:
         """
@@ -33,12 +33,13 @@ class Daylite:
         res = self.session.get(urljoin(URL_ROOT, "/v1/contacts"))
         res.raise_for_status()
         body = res.json()
+        # Thin_Contact doesn't have the normal server-provided
+        # values in it
+        # And shouldn't be used commonly anyway
         return [DayliteData(Thin_Contact, row) for row in body]
     
-    def contact(self, id_):
-        res = self.session.get(urljoin(URL_ROOT, "/v1/contact", id_))
-        res.raise_for_status()
-        return DayliteData(contact, res.json())
+    def contact(self, id_) -> DayliteData:
+        return self.fetch(Contact, id_)
     
     def companies(self) -> [DayliteData]:
         """
@@ -50,12 +51,13 @@ class Daylite:
         body = res.json()
         return [DayliteData(Company, row) for row in body]
     
-    def company(self):
+    def company(self, id_):
         pass
+        # return self.fetch(Company, id_)
     
-    def opportunity(self):
-        
+    def opportunity(self, id_):
         pass
+        # return self.fetch(Opportunity, id_)
         
     def project(self):
         
