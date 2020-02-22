@@ -293,10 +293,8 @@ Contact = Schema(
 
     # These are lists of references to other objects
     
-    Optional("companies"):          Use( list_factory(Company_Roles) ),
-    
-    # Optional("companies"):          Schema([Company_Roles]),
-    Optional("opportunities"):      Schema([Opportunity_Roles]),
+    Optional("companies"):          Use( list_factory( Company_Roles ) ),
+    Optional("opportunities"):      Use( list_factory( Opportunity_Roles ) ),
     
     # Back to generic details
     
@@ -323,8 +321,10 @@ Company = Schema({
     Optional("social_profiles"):    Schema([Social_Profiles]),
     Optional("phone_numbers"):      Schema([Phone_Numbers]),
     Optional("addresses"):          Schema([Address]),
-    Optional("contacts"):           Schema([Contact_Roles]),
-    Optional("opportunities"):      Schema([Opportunity_Roles]),
+    
+    Optional("contacts"):           Use( list_factory( Contact_Roles ) ),
+    Optional("opportunities"):      Use( list_factory( Opportunity_Roles ) ),
+    
     Optional("details"):            And(str, len),
     
     # This is a reference to a User
@@ -358,4 +358,5 @@ reference_map = {
     "/v1/contacts":                 Contact,
     "/v1/companies":                Company,
     "/v1/users":                    User,
+    "/v1/opportunities":            Opportunity,
 }
