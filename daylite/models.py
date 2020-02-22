@@ -2,6 +2,7 @@ from schema import Schema, Use, And, Or, Optional, Hook
 import json
 import arrow
 from pathlib import PurePath
+import collections
 
 # Doesn't need special functionality, just needs to be notable
 # as a separate type
@@ -26,15 +27,23 @@ class DayliteData:
         server_data = Server_Data.validate(data)
         vars(self).update(server_data)
         return self
+        
+    def _set_client(self, client):
+        self.__client__ = client
     
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
         if self.__schema__ is not None:
             self.__schema__.validate(vars(self))
-            
-    def __getattr__(self, name):
-        val = super().__getattr__(name)
-        if type(val) == Reference:
+    
+    # def __getattr__(self, name):
+    #     return super().__getattr__(name)
+    
+    def __getattribute__(self, name):
+        # print("DayliteData: getting attr {}".format(name))
+        val = super().__getattribute__(name)
+        # val = self.__getattr__(name)
+        if type(val) in (DayliteData, DayliteDataList, Reference):
             val._set_client(self.__client__)
         return val
         
@@ -50,6 +59,53 @@ class DayliteData:
                 return True
         return False
     
+class DayliteDataList(collections.UserList):
+    
+    _client = None
+    _schema = None
+    
+    def __init__(self, data):
+        self.data = data
+        
+    def _schema(self, schema):
+        self._schema = schema
+        
+    def _set_client(self, client):
+        # print("setting client")
+        self._client = client
+        
+    def __getitem__(self, idx):
+        # print("Getting idx {}".format(idx))
+        item = self.data.__getitem__(idx)
+        if type(idx) == slice:
+            # print("is a slice")
+            d = DayliteDataList(item)
+            d._schema = schema
+            d._client = self._client
+            return d
+            
+        if type(item) not in (DayliteData, Reference):
+            # print("Isn't a data object or a reference, promoting")
+            item = DayliteData(self._schema, item)
+            self[idx] = item
+        
+        # print("Trying to set client")
+        if self._client is not None:
+            item._set_client(self._client)
+        # print("Our client isn't set, wtf")
+        
+        return item
+
+def list_factory(schema):
+    def _factory(ref):
+        if type(ref) == DayliteDataList:
+            return ref
+        d = DayliteDataList(ref)
+        d._schema = schema
+        return d
+    return _factory
+    
+
 class Reference:
     """
     Provides a mechanism for background loading of objects,
@@ -74,7 +130,7 @@ class Reference:
         return cls(ref)
         
     def __repr__(self):
-        return self._ref
+        return "Reference('{}')".format(self._ref)
         
     def _set_client(self, client):
         
@@ -82,9 +138,11 @@ class Reference:
     
     def __setattr__(self, name, value):
         if name.startswith('_') or name in ('validate',):
+            # print("setting {} to {} via super".format(name, value))
             super().__setattr__(name, value)
         else:
-            self._daylitedata.__setattr__(name, value)
+            set(self._daylitedata, name, value)
+            # self._daylitedata.__setattr__(name, value)
         
     def __getattr__(self, name):
         # Special case getting attributes that are on this class
@@ -99,9 +157,14 @@ class Reference:
             if name == "self":
                 return self._ref
             # okay, we need to fetch the data for this object
-            self._daylitedata = self._client.fetch(self.schema, self.__ref__)
+            # print("Generating wrapped object to fetch {}".format(name))
+            # print("Using reference {}".format(self._ref))
+            self._daylitedata = self._client.fetch(self._schema, self._ref)
         
-        return self._daylitedata.__getattr__(name)
+        # return self._daylitedata.get(name)
+        # print("Getting {} from wrapped daylite object".format(name))
+        # print(dir(self._daylitedata))
+        return getattr(self._daylitedata, name)
         
     def validate(self):
         """Needs to support the schema validation contract"""
@@ -149,20 +212,23 @@ Address = Schema({
     Optional("note"): str
 })
 
-Company_Roles = Schema({
+Company_Roles = Schema(
+{
     "company": Use(Reference.factory),
     Optional("role"): And(str, len),
     Optional("title"): And(str, len),
     Optional("department"): And(str, len),
     Optional("default"): bool
-})
+},
+ignore_extra_keys=True)
 
 Contact_Roles = Schema({
-    "title": str,
-    "department": str,
-    "role": str,
-    "contact": Use(Reference.factory)
-})
+    Optional("title"): str,
+    Optional("department"): str,
+    Optional("role"): str,
+    ReadOnly("contact"): Use(Reference.factory)
+},
+ignore_extra_keys=True)
 
 Opportunity_Roles = Schema({
     "opportunity": Use(Reference.factory),
@@ -217,13 +283,23 @@ Contact = Schema(
     Optional("birthday"):           Date,
     Optional("anniversary"):        Date,
     
+    # These are lists of internal lists of data, not remote objects
+    
     Optional("phone_numbers"):      Schema([Phone_Numbers]),
     Optional("emails"):             Schema([Emails]),
     Optional("social_profiles"):    Schema([Social_Profiles]),
     Optional("urls"):               Schema([Urls]),
     Optional("addresses"):          Schema([Address]),
-    Optional("companies"):          Schema([Company_Roles]),
+
+    # These are lists of references to other objects
+    
+    Optional("companies"):          Use( list_factory(Company_Roles) ),
+    
+    # Optional("companies"):          Schema([Company_Roles]),
     Optional("opportunities"):      Schema([Opportunity_Roles]),
+    
+    # Back to generic details
+    
     Optional("details"):            str,
     
     # This is a reference to a User
@@ -279,7 +355,7 @@ Server_Data = Schema({
 ignore_extra_keys=True)
 
 reference_map = {
-    "/v1/contact":                  Contact,
+    "/v1/contacts":                 Contact,
     "/v1/companies":                Company,
     "/v1/users":                    User,
 }
