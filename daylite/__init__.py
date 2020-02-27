@@ -21,7 +21,6 @@ class Daylite:
         return res.status_code == 200
         
     def fetch(self, schema, ref) -> DayliteData:
-        print("Fetching for {}".format(ref))
         res = self.session.get(urljoin(URL_ROOT, ref))
         res.raise_for_status()
         return DayliteData._server(schema, res.json(), self)

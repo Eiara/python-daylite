@@ -328,10 +328,33 @@ Company = Schema({
     Optional("details"):            And(str, len),
     
     # This is a reference to a User
-    Optional("owner"):              Use(Reference.factory)
+    Optional("owner"):              Use( Reference.factory )
 },
 ignore_extra_keys=True)
 
+Opportunity_Type = Schema({
+    Optional("name"):               And(str, len),
+    Optional("is_active"):          bool,
+    ReadOnly("create_date"):        Use(arrow.get)
+})
+
+Opportunity = Schema({
+    Optional("name"):               And(str, len),
+    Optional("state"):              And(str, len), # TODO: Fetch list of states?
+    # TODO: Make this a reference to an opportunity type
+    Optional("type"):               And(str, len), 
+    Optional("probability"):        And(int, lambda x: x >= 0),
+    Optional("forecasted"):         Use(arrow.get),
+    Optional("start"):              Use(arrow.get),
+    Optional("end"):                Use(arrow.get),
+    Optional("details"):            And(str, len),
+    Optional("priority"):           And(int, lambda x: x >= 0 and x <= 10),
+    Optional("keywords"):           Schema([str]),
+    Optional("contacts"):           Use(list_factory ( Contact_Roles ) ),
+    Optional("companies"):          Use(list_factory (Company_Roles )),
+    "creator":                      Use( Reference.factory ), 
+},
+ignore_extra_keys=True)
 
 User = Schema({
     ReadOnly("login"):              And(str, len),
