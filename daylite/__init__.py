@@ -1,7 +1,7 @@
 import requests
 from requests_oauthlib import OAuth2Session
 from urllib.parse import urljoin
-from .models import DayliteData, Contact, Thin_Contact
+from .models import DayliteData, Contact, Thin_Contact, Company, Opportunity
 
 USER_AUTHORISE_URL="https://www.marketcircle.com/account/oauth/authorize"
 OAUTH_TOKEN_URL="https://www.marketcircle.com/account/oauth/token"
@@ -19,6 +19,15 @@ class Daylite:
     def check_session(self) -> int:
         res = self.session.get(AUTH_URL)
         return res.status_code == 200
+        
+    def save(self, method: str, url: str, data: dict):
+        url = urljoin(URL_ROOT, url)
+        # print("save URL {}".format(url))
+        # print("saving {}".format(data))
+        res = self.session.request(method, url, json=data)
+        res.raise_for_status()
+        # For now, return the straight result
+        return res
         
     def fetch(self, schema, ref) -> DayliteData:
         res = self.session.get(urljoin(URL_ROOT, ref))
@@ -52,12 +61,10 @@ class Daylite:
         return [DayliteData(Company, row) for row in body]
     
     def company(self, id_):
-        pass
-        # return self.fetch(Company, id_)
+        return self.fetch(Company, id_)
     
     def opportunity(self, id_):
-        pass
-        # return self.fetch(Opportunity, id_)
+        return self.fetch(Opportunity, id_)
         
     def project(self):
         

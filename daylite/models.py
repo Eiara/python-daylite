@@ -3,6 +3,7 @@ import json
 import arrow
 from pathlib import PurePath
 import collections
+from urllib.parse import urljoin
 
 # Doesn't need special functionality, just needs to be notable
 # as a separate type
@@ -11,7 +12,8 @@ class ReadOnly(Hook): pass
 class DayliteData:
     __schema__ = None
     __client__ = None
-    def __init__(self, schema, data, client=None):
+    __original__ = None
+    def __init__(self, schema, data: dict, client=None):
         data = schema.validate(data)
         vars(self).update(data)
         self.__schema__ = schema
@@ -26,12 +28,16 @@ class DayliteData:
         self = cls(schema, data, client)
         server_data = Server_Data.validate(data)
         vars(self).update(server_data)
+        self.__original__ = schema.validate(data)
+        self.__original__.update(server_data)
         return self
         
     def _set_client(self, client):
         self.__client__ = client
     
     def __setattr__(self, name, value):
+        if name in Server_Data.schema.keys():
+            raise AttributeError("{} is read-only".format(name))
         super().__setattr__(name, value)
         if self.__schema__ is not None:
             self.__schema__.validate(vars(self))
@@ -58,6 +64,32 @@ class DayliteData:
             if key == name:
                 return True
         return False
+        
+    def save(self):
+        if not self.__client__:
+            raise Exception("Missing client!")
+        _payload = self.__schema__.validate(vars(self))
+        # Okay
+        # If this came from the server
+        method = "POST"
+        endpoint = url_map[ self.__schema__.name ]
+        payload = {}
+        if self.__original__:
+            o = self.__original__
+            method = "PATCH"
+            endpoint = self.self
+            for key in _payload:
+                if key in o and o[key] == _payload[key]:
+                    continue
+                payload[key] = _payload[key]
+        else:
+            payload = _payload
+        
+        # Okay, the endpoints will be the same no matter what, for a 
+        # given type
+        
+        return self.__client__.save(method, endpoint, payload)
+        
     
 class DayliteDataList(collections.UserList):
     
@@ -128,7 +160,12 @@ class Reference:
         if type(ref) == cls:
             return ref
         return cls(ref)
-        
+    
+    def __eq__(self, other):
+        if type(other) == Reference:
+            return self._ref == other._ref
+        return False
+    
     def __repr__(self):
         return "Reference('{}')".format(self._ref)
         
@@ -330,6 +367,7 @@ Company = Schema({
     # This is a reference to a User
     Optional("owner"):              Use( Reference.factory )
 },
+name="Company",
 ignore_extra_keys=True)
 
 Opportunity_Type = Schema({
@@ -354,6 +392,7 @@ Opportunity = Schema({
     Optional("companies"):          Use(list_factory (Company_Roles )),
     "creator":                      Use( Reference.factory ), 
 },
+name="Opportunity",
 ignore_extra_keys=True)
 
 User = Schema({
@@ -361,6 +400,7 @@ User = Schema({
     ReadOnly("contact"):            Use(Reference.factory),
     Optional("hex_colour"):         And(str, len)
 },
+name="User",
 ignore_extra_keys=True)
 
 
@@ -371,9 +411,9 @@ ignore_extra_keys=True)
 # create sad times as you walk through creating and modifying it
 
 Server_Data = Schema({
-    ReadOnly("self"):               And(str, len, Url),
-    ReadOnly("create_date"):        Use(arrow.get),
-    ReadOnly("modify_date"):        Use(arrow.get),
+    "self":                         And(str, len, Url),
+    "create_date":                  Use(arrow.get),
+    "modify_date":                  Use(arrow.get),
 },
 ignore_extra_keys=True)
 
@@ -382,4 +422,11 @@ reference_map = {
     "/v1/companies":                Company,
     "/v1/users":                    User,
     "/v1/opportunities":            Opportunity,
+}
+
+url_map = {
+    "Contact": "/v1/contacts",
+    "Company": "/v1/companies",
+    "User": "/v1/users",
+    "Opportunity": "/v1/opportunities"
 }
